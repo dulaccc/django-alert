@@ -102,7 +102,8 @@ class BaseAlert(object):
             context = self.get_template_context(BACKEND=backend, USER=user, SITE=site, ALERT=self, **kwargs)
             template_kwargs = {'backend': backend, 'context': context }
             return Alert(
-                          user=user, 
+                          user=user,
+                          user_email=user.email,
                           backend=backend.id,
                           alert_type=self.id,
                           when=self.get_send_time(**kwargs),

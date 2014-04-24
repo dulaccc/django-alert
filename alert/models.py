@@ -13,7 +13,8 @@ from alert.signals import alert_sent
 
 
 class Alert(models.Model):
-    user = models.ForeignKey(getattr(settings, 'AUTH_USER_MODEL', OriginalUser))
+    user = models.ForeignKey(getattr(settings, 'AUTH_USER_MODEL', OriginalUser), blank=True, null=True)
+    user_email = models.EmailField(max_length=254)
     backend = models.CharField(max_length=20, default='EmailBackend', choices=ALERT_BACKEND_CHOICES)
     alert_type = models.CharField(max_length=25, choices=ALERT_TYPE_CHOICES)
     

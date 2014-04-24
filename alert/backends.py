@@ -39,7 +39,7 @@ class EmailBackend(BaseAlertBackend):
     title = "Email"
     
     def send(self, alert):
-        recipient = alert.user.email
+        recipient = alert.user_email
         if not recipient: raise CouldNotSendError
         
         subject = alert.title.replace("\n", "").strip()

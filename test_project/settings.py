@@ -48,6 +48,8 @@ INSTALLED_APPS = (
     'django.contrib.sites',
     'django.contrib.admin',
     
+    'south',
+
     'alert',
     'alert_tests',
 )

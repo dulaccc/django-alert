@@ -1,7 +1,7 @@
 from datetime import datetime
 from collections import defaultdict
 from django.db.models import Manager
-from alert.utils import ALERT_TYPES, ALERT_BACKENDS
+from alert.utils import ALERT_TYPES, ALERT_BACKENDS, AlertUser
 
 
 class AlertManager(Manager): pass
@@ -46,24 +46,30 @@ class AlertPrefsManager(Manager):
         return prefs
     
                 
-    def get_recipients_for_notice(self, notice_type, users):
+    def get_recipients_for_notice(self, notice_type, alert_users):
+        """
+        Return a list of (<AlertUser> instance, <AlertBackend> instance) objects
+        """
         if isinstance(notice_type, basestring):
             notice_type = ALERT_TYPES[notice_type]
         
-        if not users: return ()
+        if not alert_users: return ()
         
+        users = [au.user for au in alert_users if au.user]
         alert_prefs = self.get_query_set().filter(alert_type=notice_type.id).filter(user__in=users)
         
         prefs = {}
         for pref in alert_prefs:
-            prefs[pref.user_id, pref.backend] = pref.preference
+            pref_alert_user = None
+            for au in alert_users:
+                if au.user and au.user.id == prefs.user_id:
+                    pref_alert_user = au
+                    break
+            prefs[pref_alert_user, pref.backend] = pref.preference
         
-        user_cache = {}
-        for user in users:
-            user_cache[user.id] = user
+        for au in alert_users:
             for backend in ALERT_BACKENDS.values():
-                if (user.id, backend.id) not in prefs:
-                    prefs[user.id, backend.id] = notice_type.get_default(backend.id)
+                if (au, backend.id) not in prefs:
+                    prefs[au, backend.id] = notice_type.get_default(backend.id)
         
-        return ((user_cache[user_id], ALERT_BACKENDS[backend_id]) for ((user_id, backend_id), pref) in prefs.items() if pref)
-    
+        return ((au, ALERT_BACKENDS[backend_id]) for ((au, backend_id), pref) in prefs.items() if pref)

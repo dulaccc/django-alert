@@ -7,6 +7,7 @@ from django.template.loader import render_to_string, find_template
 from django.contrib.sites.models import Site
 from django.template import TemplateDoesNotExist
 from django.db import models
+from django.db.models.query import QuerySet
 from itertools import islice
 
 from alert.compat import get_user_model
@@ -23,6 +24,27 @@ def grouper(n, iterable):
         chunk = tuple(islice(iterable, n))
         if not chunk: return
         yield chunk
+
+
+class AlertUser(object):
+    """Basic wrapper to encapuslate a user or an email address"""
+    def __init__(self, user=None, user_email=None):
+        if not user and not user_email:
+            raise ValueError("You need to specify whether a `user` or `user_email`")
+
+        self._user = user
+        self._user_email = user_email
+
+    @property
+    def user(self):
+        return self._user
+
+    @property
+    def user_email(self):
+        if not self._user_email:
+            return self.user.email
+
+        return self._user_email
 
 class AlertMeta(type):
 
@@ -83,34 +105,48 @@ class BaseAlert(object):
         from alert.models import AlertPreference
         from alert.models import Alert
         
-        users = self.get_applicable_users(**kwargs)
-        if isinstance(users, models.Model):
-            users = [users]
-        
-        try:
-            user_count = users.count()
-        except:
-            user_count = len(users)
-            
+        alert_users = self.get_applicable_users(**kwargs)
+
+        # convert to an iterable if it's not the case yet
+        if not isinstance(alert_users, (set, tuple, list, QuerySet)):
+            alert_users = (alert_users,)
+
+        if isinstance(alert_users, QuerySet):
+            alert_user_count = alert_users.count()
+        else:
+            alert_user_count = len(alert_users)
+
+        # support User instances for legacy purposes and
+        # wrapper each instance into the `AlertUser` class
         User = get_user_model()
-        if user_count and not isinstance(users[0], User):
-            raise InvalidApplicableUsers("%s.get_applicable_users() returned an invalid value. Acceptable values are a django.contrib.auth.models.User instance OR an iterable containing 0 or more User instances" % (self.id))
+        if alert_user_count and isinstance(alert_users[0], User):
+            alert_users = [AlertUser(u) for u in alert_users]
+
+        if alert_user_count and not isinstance(alert_users[0], AlertUser):
+            raise InvalidApplicableUsers("%s.get_applicable_users() returned an invalid value. "
+                                         "Acceptable values are a django.contrib.auth.models.User instance "
+                                         "OR an iterable containing 0 or more User instances "
+                                         "OR an iterable of AlertUser instances" % (self.id))
         
         site = Site.objects.get_current()
         
-        def mk_alert(user, backend):
+        def mk_alert(alert_user, backend):
+            user = alert_user.user
+            user_email = alert_user.user_email
+
             context = self.get_template_context(BACKEND=backend, USER=user, SITE=site, ALERT=self, **kwargs)
             template_kwargs = {'backend': backend, 'context': context }
+
             return Alert(
                           user=user,
-                          user_email=user.email,
+                          user_email=user_email,
                           backend=backend.id,
                           alert_type=self.id,
                           when=self.get_send_time(**kwargs),
                           title=self.get_title(**template_kwargs),
                           body=self.get_body(**template_kwargs)
                           )
-        alerts = (mk_alert(user, backend) for (user, backend) in AlertPreference.objects.get_recipients_for_notice(self.id, users))
+        alerts = (mk_alert(alert_user, backend) for (alert_user, backend) in AlertPreference.objects.get_recipients_for_notice(self.id, alert_users))
         
         # bulk create is much faster so use it when available
         if django.VERSION >= (1, 4) and getattr(settings, 'ALERT_USE_BULK_CREATE', True):
@@ -133,7 +169,7 @@ class BaseAlert(object):
     
     
     def get_applicable_users(self, instance, **kwargs):
-        return [instance.user]
+        return [AlertUser(user=instance.user, user_email=instance.user_email)]
     
     
     def get_template_context(self, **kwargs):
